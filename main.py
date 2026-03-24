@@ -69,21 +69,13 @@ class Mancala:
 
         return self.board[board_index] != 0
         
-    def random_move_generator(self):
-        """
-        Function to generate random valid moves with non-empty pits for the random player
-        """
-        # create array of all possible pits to choose (non zero stones in the pit) 
-        # randomly choose one of these pits
-        # create array of these and use length of array in ranint? then choose that index of pits?
-        valid_pits = []
+    def random_move_generator(self, player=None):
+        """Choose a random legal move for the given player (or current player by default)."""
+        if player is None:
+            player = self.current_player
 
-        for i in range(self.pits_per_player):
-            board_index = self.p2_pits_index[0] + i
-            if self.board[board_index] != 0:
-                valid_pits.append(i + 1)  
-
-        if len(valid_pits) == 0:
+        valid_pits = self.get_legal_moves(player)
+        if not valid_pits:
             return None
 
         choice_index = randint(0, len(valid_pits) - 1)
@@ -100,37 +92,28 @@ class Mancala:
         """
 
         # Verify if the game board has reached a winning state
-        # check to see if one of the players has all empty pits
         if self.winning_eval():
             print("GAME OVER")
             return self.board
         
         # check if chosen pit is a valid choice for user
-        # check which player and if pit at index 'pit' has any stones init. Proceed if it has one or more stones
         if not self.valid_move(pit):
             print("INVALID MOVE")
             return self.board
         
-        
-        pit = pit -1
-            
-        # After passsing those two check, distribute stones according to the rules
-        # distibute stones ccw roation until no stones are left (one stone per pit)
-        original_pit = pit
-        pit = pit - 1
+        original_pit = pit  # 1-based
+        pit_index = pit - 1  # 0-based
         player = self.current_player
 
         if player == 1:
-            current_index = self.p1_pits_index[0] + pit
+            current_index = self.p1_pits_index[0] + pit_index
         else:
-            current_index = self.p2_pits_index[0] + pit
+            current_index = self.p2_pits_index[0] + pit_index
 
         stones = self.board[current_index]
         self.board[current_index] = 0
             
         for _ in range(stones):
-            #add another stone to as many pits as you can in ccw order
-            # p1 1 - p1 2 - p1 3 - p1 mancala - p2 3 - p2 2 - p2 1 (skip p2 mancala)
             current_index = (current_index + 1) % len(self.board)
 
             if player == 1 and current_index == self.p2_mancala_index:
@@ -141,15 +124,30 @@ class Mancala:
 
             self.board[current_index] += 1
             
+        last_index = current_index
+
+        # Capture rule
+        if player == 1 and last_index >= self.p1_pits_index[0] and last_index <= self.p1_pits_index[1] and self.board[last_index] == 1:
+            opp_index = 12 - last_index
+            if self.board[opp_index] > 0:
+                self.board[self.p1_mancala_index] += self.board[last_index] + self.board[opp_index]
+                self.board[last_index] = 0
+                self.board[opp_index] = 0
+        elif player == 2 and last_index >= self.p2_pits_index[0] and last_index <= self.p2_pits_index[1] and self.board[last_index] == 1:
+            opp_index = 12 - last_index
+            if self.board[opp_index] > 0:
+                self.board[self.p2_mancala_index] += self.board[last_index] + self.board[opp_index]
+                self.board[last_index] = 0
+                self.board[opp_index] = 0
+            
         self.moves.append((player, original_pit))
 
-        if player == 1:
-            self.current_player = 2
-        else:
-            self.current_player = 1
-
         if self.winning_eval():
+            self.collect_remaining()
             print("GAME OVER")
+
+        # Switch player (no extra turn as per rules)
+        self.current_player = 2 if player == 1 else 1
 
         return self.board
     
@@ -158,21 +156,58 @@ class Mancala:
         Function to verify if the game board has reached the winning state.
         Hint: If either of the players' pits are all empty, then it is considered a winning state.
         """
-        
-        
-        
-         # Verify if the game baord has reached a winning state
-        # check to see if one of the players has all empty pits
-        p1_stones = 0
-        p2_stones = 0
-
-        for i in range(self.p1_pits_index[0], self.p1_pits_index[1] + 1):
-            p1_stones += self.board[i]
-
-        for i in range(self.p2_pits_index[0], self.p2_pits_index[1] + 1):
-            p2_stones += self.board[i]
-
+        p1_stones = sum(self.board[self.p1_pits_index[0]:self.p1_pits_index[1] + 1])
+        p2_stones = sum(self.board[self.p2_pits_index[0]:self.p2_pits_index[1] + 1])
         return p1_stones == 0 or p2_stones == 0
+
+    def collect_remaining(self):
+        """
+        Collect remaining stones into the mancala of the player who has stones left.
+        """
+        p1_empty = sum(self.board[self.p1_pits_index[0]:self.p1_pits_index[1] + 1]) == 0
+        p2_empty = sum(self.board[self.p2_pits_index[0]:self.p2_pits_index[1] + 1]) == 0
+        if p1_empty:
+            remaining = sum(self.board[self.p2_pits_index[0]:self.p2_pits_index[1] + 1])
+            self.board[self.p1_mancala_index] += remaining
+            for i in range(self.p2_pits_index[0], self.p2_pits_index[1] + 1):
+                self.board[i] = 0
+        elif p2_empty:
+            remaining = sum(self.board[self.p1_pits_index[0]:self.p1_pits_index[1] + 1])
+            self.board[self.p2_mancala_index] += remaining
+            for i in range(self.p1_pits_index[0], self.p1_pits_index[1] + 1):
+                self.board[i] = 0
+
+    def is_terminal(self):
+        """Return True if the game is over (one side has no pits left with stones)."""
+        return self.winning_eval()
+
+    def get_legal_moves(self, player=None):
+        """Return list of legal move pit numbers (1-based) for the specified player."""
+        if player is None:
+            player = self.current_player
+
+        pit_indices = self.p1_pits_index if player == 1 else self.p2_pits_index
+        moves = []
+        for i in range(self.pits_per_player):
+            board_index = pit_indices[0] + i
+            if self.board[board_index] > 0:
+                moves.append(i + 1)
+        return moves
+
+    def clone(self):
+        """Deep-copy board state for tree search."""
+        clone_game = Mancala(self.pits_per_player)
+        clone_game.board = self.board.copy()
+        clone_game.current_player = self.current_player
+        clone_game.moves = self.moves.copy()
+        return clone_game
+
+    def evaluate(self, player=1):
+        """Utility function for AI: mancala(player) - mancala(opponent)."""
+        my_mancala = self.board[self.p1_mancala_index] if player == 1 else self.board[self.p2_mancala_index]
+        opp_mancala = self.board[self.p2_mancala_index] if player == 1 else self.board[self.p1_mancala_index]
+        return my_mancala - opp_mancala
+
 # Mancala part 1 
 game = Mancala()
 game.display_board()
