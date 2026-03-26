@@ -168,12 +168,12 @@ class Mancala:
         p2_empty = sum(self.board[self.p2_pits_index[0]:self.p2_pits_index[1] + 1]) == 0
         if p1_empty:
             remaining = sum(self.board[self.p2_pits_index[0]:self.p2_pits_index[1] + 1])
-            self.board[self.p1_mancala_index] += remaining
+            self.board[self.p2_mancala_index] += remaining
             for i in range(self.p2_pits_index[0], self.p2_pits_index[1] + 1):
                 self.board[i] = 0
         elif p2_empty:
             remaining = sum(self.board[self.p1_pits_index[0]:self.p1_pits_index[1] + 1])
-            self.board[self.p2_mancala_index] += remaining
+            self.board[self.p1_mancala_index] += remaining
             for i in range(self.p1_pits_index[0], self.p1_pits_index[1] + 1):
                 self.board[i] = 0
 
@@ -227,4 +227,55 @@ for move in game.moves:
     print(f"Player {player} selected pit {pit}")
 
 
+# --- 100 Game Random vs Random Simulation ---
+print("\n\n--- 100 Game Random vs Random Simulation ---\n")
+
+p1_wins = 0
+p2_wins = 0
+ties = 0
+total_turns = 0
+
+for i in range(100):
+    game = Mancala()
+
+    turns = 0
+    while not game.is_terminal():
+        move = game.random_move_generator()
+        game.play(move)
+        turns += 1
+
+    total_turns += turns
+
+    p1_score = game.board[game.p1_mancala_index]
+    p2_score = game.board[game.p2_mancala_index]
+
+    if p1_score > p2_score:
+        p1_wins += 1
+    elif p2_score > p1_score:
+        p2_wins += 1
+    else:
+        ties += 1
+
+avg_turns = total_turns / 100
+
+print("Results after 100 games:\n")
+print(f"Player 1 Wins: {p1_wins} ({p1_wins}%)")
+print(f"Player 1 Losses: {p2_wins} ({p2_wins}%)")
+print(f"Player 1 Ties: {ties} ({ties}%)")
+print()
+print(f"Player 2 Wins: {p2_wins} ({p2_wins}%)")
+print(f"Player 2 Losses: {p1_wins} ({p1_wins}%)")
+print(f"Player 2 Ties: {ties} ({ties}%)")
+print()
+print(f"Average Turns Per Game: {avg_turns}")
+print()
+
+if p1_wins > p2_wins:
+    advantage = p1_wins - p2_wins
+    print(f"First Move Advantage: Yes, Player 1 won {advantage} more games than Player 2.")
+elif p2_wins > p1_wins:
+    advantage = p2_wins - p1_wins
+    print(f"First Move Advantage: No, Player 2 actually won {advantage} more games than Player 1.")
+else:
+    print("First Move Advantage: No clear advantage, both players won the same number of games.")
 
