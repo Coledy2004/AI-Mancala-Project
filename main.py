@@ -1,5 +1,7 @@
 import random
 from random import randint
+import time
+
 random.seed(109)
 
 class Mancala:
@@ -208,74 +210,228 @@ class Mancala:
         opp_mancala = self.board[self.p2_mancala_index] if player == 1 else self.board[self.p1_mancala_index]
         return my_mancala - opp_mancala
 
-# Mancala part 1 
-game = Mancala()
-game.display_board()
 
-# Player 1 selects pit 1 (1-based index)
-game.play(1)
-game.display_board()
+# ─────────────────────────────────────────────
+#  AI Players
+# ─────────────────────────────────────────────
 
-# Player 2 selects pit 2
-game.play(game.random_move_generator())
-game.display_board()
+class MinimaxPlayer:
+    """
+    Minimax AI player with a configurable search depth.
 
-# Printing the list of moves
-print("\nList of valid moves:")
-for move in game.moves:
-    player, pit = move
-    print(f"Player {player} selected pit {pit}")
+    At each node the algorithm:
+      - Returns the heuristic evaluate() score at terminal states or depth 0.
+      - For the maximising player it picks the move with the highest score.
+      - For the minimising player it picks the move with the lowest score.
+
+    The AI always plays as `ai_player`; the opponent is the other player.
+    node_count tracks how many nodes were expanded in the last move call.
+    """
+
+    def __init__(self, ai_player=1, depth=5):
+        self.ai_player = ai_player
+        self.depth = depth
+        self.node_count = 0
+
+    def choose_move(self, game):
+        """Return the best pit (1-based) for the current player according to minimax."""
+        self.node_count = 0
+        best_move = None
+        best_score = float('-inf')
+
+        for move in game.get_legal_moves():
+            child = game.clone()
+            child.play(move)
+            self.node_count += 1
+            score = self._minimax(child, self.depth - 1, is_maximising=False)
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+        return best_move
+
+    def _minimax(self, game, depth, is_maximising):
+        """Recursive minimax search."""
+        self.node_count += 1
+
+        if depth == 0 or game.is_terminal():
+            return game.evaluate(self.ai_player)
+
+        legal_moves = game.get_legal_moves()
+
+        if is_maximising:
+            best = float('-inf')
+            for move in legal_moves:
+                child = game.clone()
+                child.play(move)
+                best = max(best, self._minimax(child, depth - 1, is_maximising=False))
+            return best
+        else:
+            best = float('inf')
+            for move in legal_moves:
+                child = game.clone()
+                child.play(move)
+                best = min(best, self._minimax(child, depth - 1, is_maximising=True))
+            return best
 
 
-# --- 100 Game Random vs Random Simulation ---
-print("\n\n--- 100 Game Random vs Random Simulation ---\n")
+class AlphaBetaPlayer:
+    """
+    Alpha-Beta pruning AI player with a configurable search depth.
 
-p1_wins = 0
-p2_wins = 0
-ties = 0
-total_turns = 0
+    Identical to MinimaxPlayer in decision quality but prunes branches that
+    cannot affect the final result, significantly reducing node_count.
 
-for i in range(100):
-    game = Mancala()
+    alpha: best value the maximiser can guarantee so far (starts at -inf).
+    beta:  best value the minimiser can guarantee so far (starts at +inf).
+    A branch is pruned when alpha >= beta (the opponent would never allow this
+    line to be reached).
+    """
 
-    turns = 0
-    while not game.is_terminal():
-        move = game.random_move_generator()
-        game.play(move)
-        turns += 1
+    def __init__(self, ai_player=1, depth=5):
+        self.ai_player = ai_player
+        self.depth = depth
+        self.node_count = 0
 
-    total_turns += turns
+    def choose_move(self, game):
+        """Return the best pit (1-based) for the current player using alpha-beta."""
+        self.node_count = 0
+        best_move = None
+        best_score = float('-inf')
+        alpha = float('-inf')
+        beta = float('inf')
 
-    p1_score = game.board[game.p1_mancala_index]
-    p2_score = game.board[game.p2_mancala_index]
+        for move in game.get_legal_moves():
+            child = game.clone()
+            child.play(move)
+            self.node_count += 1
+            score = self._alpha_beta(child, self.depth - 1, alpha, beta, is_maximising=False)
+            if score > best_score:
+                best_score = score
+                best_move = move
+            alpha = max(alpha, best_score)
 
-    if p1_score > p2_score:
-        p1_wins += 1
-    elif p2_score > p1_score:
-        p2_wins += 1
+        return best_move
+
+    def _alpha_beta(self, game, depth, alpha, beta, is_maximising):
+        """Recursive alpha-beta search."""
+        self.node_count += 1
+
+        if depth == 0 or game.is_terminal():
+            return game.evaluate(self.ai_player)
+
+        legal_moves = game.get_legal_moves()
+
+        if is_maximising:
+            best = float('-inf')
+            for move in legal_moves:
+                child = game.clone()
+                child.play(move)
+                best = max(best, self._alpha_beta(child, depth - 1, alpha, beta, is_maximising=False))
+                alpha = max(alpha, best)
+                if alpha >= beta:
+                    break  # Beta cut-off
+            return best
+        else:
+            best = float('inf')
+            for move in legal_moves:
+                child = game.clone()
+                child.play(move)
+                best = min(best, self._alpha_beta(child, depth - 1, alpha, beta, is_maximising=True))
+                beta = min(beta, best)
+                if alpha >= beta:
+                    break  # Alpha cut-off
+            return best
+
+
+# ─────────────────────────────────────────────
+#  Helper: run a batch of games between two AI strategies
+# ─────────────────────────────────────────────
+
+def run_batch(p1_strategy, p2_strategy, n_games=100, label=""):
+    """
+    Run n_games between two strategy callables.
+
+    Each strategy callable accepts a Mancala game object and returns a pit (1-based).
+    Returns a dict with win/loss/tie counts, average turns, and timing info.
+    """
+    p1_wins = p2_wins = ties = 0
+    total_turns = 0
+    total_time = 0.0
+
+    for _ in range(n_games):
+        game = Mancala()
+        turns = 0
+        t_start = time.time()
+
+        while not game.is_terminal():
+            if game.current_player == 1:
+                move = p1_strategy(game)
+            else:
+                move = p2_strategy(game)
+            game.play(move)
+            turns += 1
+
+        total_time += time.time() - t_start
+        total_turns += turns
+
+        p1_score = game.board[game.p1_mancala_index]
+        p2_score = game.board[game.p2_mancala_index]
+
+        if p1_score > p2_score:
+            p1_wins += 1
+        elif p2_score > p1_score:
+            p2_wins += 1
+        else:
+            ties += 1
+
+    return {
+        "label": label,
+        "p1_wins": p1_wins,
+        "p2_wins": p2_wins,
+        "ties": ties,
+        "avg_turns": total_turns / n_games,
+        "avg_time_s": total_time / n_games,
+    }
+
+
+def print_batch_results(results):
+    r = results
+    print(f"  Scenario : {r['label']}")
+    print(f"  P1 Wins  : {r['p1_wins']} ({r['p1_wins']}%)")
+    print(f"  P2 Wins  : {r['p2_wins']} ({r['p2_wins']}%)")
+    print(f"  Ties     : {r['ties']} ({r['ties']}%)")
+    print(f"  Avg Turns: {r['avg_turns']:.1f}")
+    print(f"  Avg Time : {r['avg_time_s']:.3f}s per game")
+    if r['p1_wins'] > r['p2_wins']:
+        print(f"  First-move advantage: YES  (P1 won {r['p1_wins'] - r['p2_wins']} more games)")
+    elif r['p2_wins'] > r['p1_wins']:
+        print(f"  First-move advantage: NO   (P2 won {r['p2_wins'] - r['p1_wins']} more games)")
     else:
-        ties += 1
+        print("  First-move advantage: NO CLEAR ADVANTAGE")
+    print()
 
-avg_turns = total_turns / 100
 
-print("Results after 100 games:\n")
-print(f"Player 1 Wins: {p1_wins} ({p1_wins}%)")
-print(f"Player 1 Losses: {p2_wins} ({p2_wins}%)")
-print(f"Player 1 Ties: {ties} ({ties}%)")
-print()
-print(f"Player 2 Wins: {p2_wins} ({p2_wins}%)")
-print(f"Player 2 Losses: {p1_wins} ({p1_wins}%)")
-print(f"Player 2 Ties: {ties} ({ties}%)")
-print()
-print(f"Average Turns Per Game: {avg_turns}")
-print()
+# ─────────────────────────────────────────────
+#  Part 1: Original demo (unchanged)
+# ─────────────────────────────────────────────
 
-if p1_wins > p2_wins:
-    advantage = p1_wins - p2_wins
-    print(f"First Move Advantage: Yes, Player 1 won {advantage} more games than Player 2.")
-elif p2_wins > p1_wins:
-    advantage = p2_wins - p1_wins
-    print(f"First Move Advantage: No, Player 2 actually won {advantage} more games than Player 1.")
-else:
-    print("First Move Advantage: No clear advantage, both players won the same number of games.")
+def main():
+    print("=" * 50)
+    print("AI vs Random: 100 games")
+    print("=" * 50 + "\n")
 
+    ai_player = AlphaBetaPlayer(ai_player=2, depth=5)
+    results = run_batch(
+        p1_strategy=lambda g: g.random_move_generator(),
+        p2_strategy=lambda g: ai_player.choose_move(g),
+        n_games=100,
+        label="Random (P1) vs Alpha-Beta depth=5 (P2)"
+    )
+
+    print_batch_results(results)
+    print(f"AI wins (P2): {results['p2_wins']} out of 100 games")
+
+
+if __name__ == "__main__":
+    main()
